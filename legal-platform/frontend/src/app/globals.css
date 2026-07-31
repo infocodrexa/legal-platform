@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/*
+  DESIGN SYSTEM — "The Register"
+  ================================
+  Visual language drawn from Indian legal-document conventions: ink on
+  paper, brass-embossed seals, ruled ledger lines, the round authentication
+  stamp. Warm-neutral paper (not cream), ink-navy (not black), a brick-red
+  seal accent used sparingly like an actual stamp rather than decoration.
+*/
+
+@theme {
+  /* ---- Color: ink & paper ---- */
+  --color-ink: #16233f;          /* headings, primary text, primary button */
+  --color-ink-soft: #2b3b5c;     /* hover/active weight of ink */
+  --color-ink-muted: #5b6478;    /* secondary text on paper */
+
+  --color-paper: #ede9e1;        /* page background — cool stone, not cream */
+  --color-paper-raised: #f7f5f0; /* card surfaces */
+  --color-paper-line: #d8d2c3;   /* ledger rules, hairline borders */
+  --color-cream-white: #fbfaf7;  /* input fields, lightest surface */
+
+  /* ---- Color: accents ---- */
+  --color-seal: #a13d2b;         /* primary accent — CTAs, the stamp motif */
+  --color-seal-soft: #bd5540;    /* seal hover */
+  --color-seal-wash: #f3e4df;    /* pale seal tint for badges/backgrounds */
+
+  --color-brass: #8a6d3b;        /* secondary accent — numbering, dividers */
+  --color-brass-wash: #ece3cf;   /* pale brass tint */
+
+  --color-verified: #3f6b4c;     /* success / verified-lawyer states */
+  --color-verified-wash: #e2ebe3;
+
+  /* ---- Type ---- */
+  --font-display: var(--font-source-serif), Georgia, serif;
+  --font-body: var(--font-inter), -apple-system, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  /* ---- Radius ---- */
+  --radius-card: 0.375rem;
+
+  /* ---- Motion ---- */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from { height: 0; }
+    to { height: var(--radix-accordion-content-height); }
+  }
+  @keyframes accordion-up {
+    from { height: var(--radix-accordion-content-height); }
+    to { height: 0; }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-paper-line);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    color: var(--color-ink);
+    letter-spacing: -0.01em;
+  }
+
+  /* Visible keyboard focus everywhere — never suppressed. */
+  :focus-visible {
+    outline: 2px solid var(--color-seal);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-seal-wash);
+    color: var(--color-ink);
+  }
+}
+
+@layer utilities {
+  .prose-legal {
+    --tw-prose-body: var(--color-ink-muted);
+    --tw-prose-headings: var(--color-ink);
+    --tw-prose-links: var(--color-seal);
+    --tw-prose-bold: var(--color-ink);
+    --tw-prose-counters: var(--color-brass);
+    --tw-prose-bullets: var(--color-brass);
+    --tw-prose-hr: var(--color-paper-line);
+    --tw-prose-quotes: var(--color-ink);
+    --tw-prose-quote-borders: var(--color-seal);
+    --tw-prose-th-borders: var(--color-paper-line);
+    --tw-prose-td-borders: var(--color-paper-line);
+  }
+
+  /* A single ruled ledger line — the recurring structural motif standing
+     in for generic hairline dividers. */
+  .rule {
+    background-image: repeating-linear-gradient(
+      to right,
+      var(--color-paper-line) 0,
+      var(--color-paper-line) 6px,
+      transparent 6px,
+      transparent 12px
+    );
+    background-position: bottom;
+    background-size: 100% 1px;
+    background-repeat: repeat-x;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

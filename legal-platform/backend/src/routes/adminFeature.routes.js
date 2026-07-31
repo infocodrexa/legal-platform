@@ -1,0 +1,16 @@
+const express = require("express");
+const controller = require("../controllers/adminFeature.controller");
+const validate = require("../middlewares/validate");
+const { authenticate } = require("../middlewares/auth.middleware");
+const { authorize } = require("../middlewares/rbac.middleware");
+const v = require("../validators/adminFeature.validator");
+const router = express.Router();
+router.use(authenticate, authorize("ADMIN", "SUPER_ADMIN"));
+router.get("/search", validate(v.searchSchema), controller.globalSearch);
+router.get("/timeline/:entityType/:entityId", validate(v.entityParamsSchema), controller.listTimeline);
+router.post("/timeline", validate(v.timelineSchema), controller.addTimeline);
+router.get("/notes/:entityType/:entityId", validate(v.entityParamsSchema), controller.listNotes);
+router.post("/notes", validate(v.noteSchema), controller.addNote);
+router.patch("/notes/:noteId", validate(v.updateNoteSchema), controller.updateNote);
+router.delete("/notes/:noteId", validate(v.noteIdSchema), controller.deleteNote);
+module.exports = router;

@@ -1,0 +1,9 @@
+const { z } = require("zod");
+const paging = { page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(100).default(20) };
+const searchSchema = z.object({ query: z.object({ query: z.string().trim().min(2).max(100), ...paging }) });
+const entityParamsSchema = z.object({ params: z.object({ entityType: z.string().min(2).max(50), entityId: z.string().min(1).max(100) }), query: z.object(paging) });
+const timelineSchema = z.object({ body: z.object({ entityType: z.string().min(2).max(50), entityId: z.string().min(1).max(100), action: z.string().min(2).max(100), title: z.string().min(2).max(180), description: z.string().max(2000).optional(), metadata: z.record(z.any()).optional() }) });
+const noteSchema = z.object({ body: z.object({ entityType: z.string().min(2).max(50), entityId: z.string().min(1).max(100), subjectUserId: z.string().uuid().optional(), note: z.string().trim().min(2).max(4000) }) });
+const updateNoteSchema = z.object({ params: z.object({ noteId: z.string().uuid() }), body: z.object({ note: z.string().trim().min(2).max(4000) }) });
+const noteIdSchema = z.object({ params: z.object({ noteId: z.string().uuid() }) });
+module.exports = { searchSchema, entityParamsSchema, timelineSchema, noteSchema, updateNoteSchema, noteIdSchema };

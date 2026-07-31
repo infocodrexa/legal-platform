@@ -1,0 +1,11 @@
+const asyncHandler = require("../utils/asyncHandler");
+const { sendSuccess } = require("../utils/apiResponse");
+const service = require("../services/adminFeature.service");
+const globalSearch = asyncHandler(async (req, res) => sendSuccess(res, { data: await service.globalSearch(req.query) }));
+const listTimeline = asyncHandler(async (req, res) => { const r = await service.listTimeline({ ...req.params, ...req.query }); sendSuccess(res, { data: r.items, meta: { total: r.total, page: r.page, limit: r.limit } }); });
+const addTimeline = asyncHandler(async (req, res) => sendSuccess(res, { statusCode: 201, message: "Timeline event added.", data: await service.addTimelineEvent({ userId: req.user.id, ...req.body }) }));
+const listNotes = asyncHandler(async (req, res) => { const r = await service.listNotes({ ...req.params, ...req.query }); sendSuccess(res, { data: r.items, meta: { total: r.total, page: r.page, limit: r.limit } }); });
+const addNote = asyncHandler(async (req, res) => sendSuccess(res, { statusCode: 201, message: "Admin note added.", data: await service.addNote({ adminUserId: req.user.id, ...req.body }) }));
+const updateNote = asyncHandler(async (req, res) => sendSuccess(res, { message: "Admin note updated.", data: await service.updateNote({ adminUserId: req.user.id, noteId: req.params.noteId, note: req.body.note }) }));
+const deleteNote = asyncHandler(async (req, res) => sendSuccess(res, { message: "Admin note deleted.", data: await service.deleteNote({ adminUserId: req.user.id, noteId: req.params.noteId }) }));
+module.exports = { globalSearch, listTimeline, addTimeline, listNotes, addNote, updateNote, deleteNote };

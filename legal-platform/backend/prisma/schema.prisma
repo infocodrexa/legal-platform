@@ -1,0 +1,886 @@
+// ============================================================================
+// PHASE 1 — Foundation: User, RefreshToken, OtpVerification
+// PHASE 2 — Core Domain: LawyerProfile, WorkingHour, AvailabilitySlot,
+//           Document, DocumentStatusHistory, Appointment
+// PHASE 3 — Money & Meetings: Payment, Refund, AuditLog (append-only)
+// PHASE 4 — Communication: Notification, ChatMessage
+// PHASE 5 — Admin & CMS: Review, SupportTicket, SupportTicketReply, Blog,
+//           FAQ, Testimonial, SEOMeta, MessageTemplate
+// PHASE 7 — Remaining modules: Service (catalog), Lead (contact form),
+//           MediaAsset (unified upload registry), BackupRecord
+// Phase 6 (security/performance hardening) touched existing models only.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  GUEST
+  USER
+  LAWYER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum OtpPurpose {
+  REGISTER
+  LOGIN
+  RESET_PASSWORD
+  PHONE_VERIFY
+}
+
+enum KycStatus {
+  PENDING
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum DocumentCategory {
+  IDENTITY_PROOF
+  ADDRESS_PROOF
+  PROPERTY_DOCUMENT
+  CONTRACT
+  COURT_ORDER
+  FINANCIAL_DOCUMENT
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  REUPLOAD_REQUIRED
+}
+
+enum AppointmentStatus {
+  REQUESTED
+  ACCEPTED
+  REJECTED
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+// payment_intent -> captured -> settled_to_lawyer, per the RBI-aligned
+// escrow-style settlement trail required in the compliance spec (Sec 2.2).
+enum PaymentStatus {
+  CREATED
+  CAPTURED
+  SETTLED
+  FAILED
+  REFUNDED
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  EMAIL
+  BROWSER
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum NotificationType {
+  APPOINTMENT_REQUESTED
+  APPOINTMENT_ACCEPTED
+  APPOINTMENT_REJECTED
+  APPOINTMENT_CANCELLED
+  APPOINTMENT_RESCHEDULED
+  APPOINTMENT_REMINDER
+  DOCUMENT_STATUS_CHANGED
+  KYC_STATUS_CHANGED
+  PAYMENT_CAPTURED
+  PAYMENT_FAILED
+  REFUND_REQUESTED
+  REFUND_PROCESSED
+  CHAT_MESSAGE_RECEIVED
+  ADMIN_MESSAGE
+  SYSTEM_ANNOUNCEMENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum BlogStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  CONVERTED
+  CLOSED
+}
+
+enum BackupStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  phone        String   @unique
+  passwordHash String
+  role         Role     @default(USER)
+  isVerified   Boolean  @default(false)
+  isBanned     Boolean  @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  refreshTokens RefreshToken[]
+  otps          OtpVerification[]
+
+  lawyerProfile   LawyerProfile?
+  documents       Document[]
+  appointments    Appointment[]           @relation("UserAppointments")
+  statusChangesMade DocumentStatusHistory[] @relation("StatusChangedBy")
+
+  payments          Payment[]
+  refundsRequested  Refund[]  @relation("RefundRequestedBy")
+  refundsApproved   Refund[]  @relation("RefundApprovedBy")
+  auditLogs         AuditLog[]
+
+  notifications        Notification[]
+  notificationPreference NotificationPreference?
+  adminNotesAuthored      AdminNote[] @relation("AdminNoteAuthor")
+  adminNotesAbout         AdminNote[] @relation("AdminNoteSubject")
+  activityEvents          ActivityEvent[]
+  chatMessagesSent      ChatMessage[]  @relation("ChatMessagesSent")
+  chatMessagesReceived  ChatMessage[]  @relation("ChatMessagesReceived")
+
+  reviewsGiven          Review[]
+  supportTickets        SupportTicket[]      @relation("TicketRequester")
+  ticketsAssigned       SupportTicket[]      @relation("TicketAssignee")
+  ticketReplies         SupportTicketReply[]
+  blogPosts             Blog[]
+  messageTemplateEdits  MessageTemplate[]
+
+  leadsAssigned         Lead[]
+  mediaAssetsUploaded   MediaAsset[]
+  backupsTriggered      BackupRecord[]
+
+  @@index([email])
+  @@index([phone])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// OTP records are hashed at rest and single-use. Used for register / login /
+// password reset / phone verification flows.
+model OtpVerification {
+  id         String     @id @default(uuid())
+  userId     String?
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identifier String // email or phone the OTP was sent to
+  otpHash    String
+  purpose    OtpPurpose
+  expiresAt  DateTime
+  consumed   Boolean    @default(false)
+  attempts   Int        @default(0)
+  createdAt  DateTime   @default(now())
+
+  @@index([identifier, purpose])
+}
+
+// ============================================================================
+// PHASE 2 — Core Domain
+// ============================================================================
+
+model LawyerProfile {
+  id                 String    @id @default(uuid())
+  userId             String    @unique
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  barCouncilId       String    @unique
+  // Private S3 object key (never a public URL) — served only via signed URL.
+  licenseDocKey      String
+  panDocKey          String?
+  kycStatus          KycStatus @default(PENDING)
+  kycRemarks         String?
+  kycReviewedAt       DateTime?
+  bio                String?
+  specializations    String[]  @default([])
+  experienceYears    Int?
+  consultationCharge Decimal   @db.Decimal(10, 2)
+
+  // Razorpay Route linked account ID — payouts settle directly here instead
+  // of pooling in the platform's account (compliance spec Sec 2.1). Only
+  // eligible to be set/used once kycStatus = VERIFIED (Sec 2.3).
+  razorpayAccountId String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  workingHours      WorkingHour[]
+  availabilitySlots AvailabilitySlot[]
+  appointments      Appointment[]           @relation("LawyerAppointments")
+  documentsReviewed Document[]              @relation("ReviewedDocuments")
+  payments          Payment[]
+  reviews           Review[]
+
+  @@index([kycStatus])
+}
+
+// Recurring weekly availability template, e.g. "Mon 10:00-18:00".
+// AvailabilitySlot rows are generated from this template (see
+// lawyer.service.js#generateSlots) rather than booked against directly.
+model WorkingHour {
+  id              String        @id @default(uuid())
+  lawyerProfileId String
+  lawyerProfile   LawyerProfile @relation(fields: [lawyerProfileId], references: [id], onDelete: Cascade)
+  dayOfWeek       DayOfWeek
+  startTime       String // "HH:mm", 24h, in the lawyer's local time
+  endTime         String // "HH:mm"
+  isActive        Boolean       @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([lawyerProfileId, dayOfWeek, startTime])
+}
+
+// A concrete, bookable slot on a specific date/time, generated from
+// WorkingHour templates. One-to-one with Appointment once booked.
+model AvailabilitySlot {
+  id              String        @id @default(uuid())
+  lawyerProfileId String
+  lawyerProfile   LawyerProfile @relation(fields: [lawyerProfileId], references: [id], onDelete: Cascade)
+  startTime       DateTime
+  endTime         DateTime
+  isBooked        Boolean       @default(false)
+
+  appointment Appointment?
+
+  createdAt DateTime @default(now())
+
+  @@unique([lawyerProfileId, startTime])
+  @@index([lawyerProfileId, isBooked, startTime])
+}
+
+model Document {
+  id               String           @id @default(uuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category         DocumentCategory
+  // Private S3 object key — never store/return a public URL directly.
+  fileKey          String
+  originalFileName String
+  mimeType         String
+  fileSizeBytes    Int
+  status           DocumentStatus   @default(PENDING)
+  remarks          String?
+
+  reviewedByLawyerId String?
+  reviewedByLawyer   LawyerProfile? @relation("ReviewedDocuments", fields: [reviewedByLawyerId], references: [id])
+  reviewedAt         DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  statusHistory DocumentStatusHistory[]
+
+  @@index([userId, status])
+  @@index([reviewedByLawyerId])
+}
+
+// Append-only audit trail of every status transition a document goes through.
+model DocumentStatusHistory {
+  id             String          @id @default(uuid())
+  documentId     String
+  document       Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  fromStatus     DocumentStatus?
+  toStatus       DocumentStatus
+  remarks        String?
+  changedByUserId String
+  changedByUser   User            @relation("StatusChangedBy", fields: [changedByUserId], references: [id])
+  changedAt       DateTime        @default(now())
+
+  @@index([documentId])
+}
+
+model Appointment {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation("UserAppointments", fields: [userId], references: [id], onDelete: Cascade)
+
+  lawyerId      String
+  lawyerProfile LawyerProfile @relation("LawyerAppointments", fields: [lawyerId], references: [id])
+
+  slotId String?           @unique
+  slot   AvailabilitySlot? @relation(fields: [slotId], references: [id])
+
+  scheduledStart DateTime
+  scheduledEnd   DateTime
+  status         AppointmentStatus @default(REQUESTED)
+  googleMeetLink String?
+  googleEventId  String?
+  reminderSentAt DateTime?
+  consultationCharge Decimal @db.Decimal(10, 2)
+
+  payment      Payment?
+  chatMessages ChatMessage[]
+  review       Review?
+
+  cancelReason    String?
+  cancelledByRole Role?
+
+  // Self-relation: when an appointment is rescheduled, the old row is marked
+  // RESCHEDULED and points forward to the new one via rescheduledFromId.
+  rescheduledFromId String?      @unique
+  rescheduledFrom   Appointment? @relation("Reschedule", fields: [rescheduledFromId], references: [id])
+  rescheduledTo     Appointment? @relation("Reschedule")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([lawyerId, status])
+  @@index([scheduledStart])
+}
+
+// ============================================================================
+// PHASE 3 — Money & Meetings
+// ============================================================================
+
+// One row per appointment. Never a single "paid" boolean — the status
+// enum IS the auditable payment_intent -> captured -> settled trail
+// required by the compliance spec (Sec 2.2). Soft-delete only; a Payment
+// row is never hard-deleted (Sec 2.8, immutable audit trail).
+model Payment {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  lawyerId      String
+  lawyerProfile LawyerProfile @relation(fields: [lawyerId], references: [id])
+
+  appointmentId String      @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id])
+
+  razorpayOrderId   String  @unique
+  // Null until the payment is actually captured.
+  razorpayPaymentId String? @unique
+  // Stored only for audit/verification — never raw card/UPI details
+  // (Sec 2.4). Razorpay Checkout/Standard handles card data; this backend
+  // never sees or logs it.
+  razorpaySignature String?
+  razorpayTransferId String? // Route transfer id, once settled to the lawyer
+
+  currency String @default("INR")
+
+  amount             Decimal @db.Decimal(10, 2)
+  platformCommission Decimal @db.Decimal(10, 2)
+  lawyerPayout       Decimal @db.Decimal(10, 2)
+
+  status PaymentStatus @default(CREATED)
+
+  // GST-compliant invoice, generated once CAPTURED (Sec 2.7). Private S3
+  // key — served via signed URL only, same as every other stored document.
+  gstInvoiceKey String?
+  buyerGstin    String? // optional for individual users, per Sec 2.7
+
+  capturedAt DateTime?
+  settledAt  DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  refunds Refund[]
+
+  @@index([userId])
+  @@index([lawyerId])
+  @@index([status])
+}
+
+// requested -> approved/rejected -> processing -> processed, with
+// timestamps at each hand-off so refund SLA can be tracked (Sec 2.5).
+model Refund {
+  id        String  @id @default(uuid())
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id])
+
+  amount Decimal @db.Decimal(10, 2)
+  reason String?
+  status RefundStatus @default(REQUESTED)
+
+  requestedByUserId String
+  requestedByUser   User   @relation("RefundRequestedBy", fields: [requestedByUserId], references: [id])
+
+  approvedByUserId String?
+  approvedByUser   User?   @relation("RefundApprovedBy", fields: [approvedByUserId], references: [id])
+  rejectionReason  String?
+
+  razorpayRefundId String?
+
+  requestedAt DateTime  @default(now())
+  processedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([paymentId])
+  @@index([status])
+}
+
+// Append-only. No `updatedAt`/`deletedAt` by design — application code must
+// never issue an UPDATE or DELETE against this table (Sec 2.8). Covers
+// payment- and KYC-related actions at minimum; can be written from any
+// module.
+model AuditLog {
+  id          String    @id @default(uuid())
+  actorUserId String?
+  actorUser   User?     @relation(fields: [actorUserId], references: [id])
+  actorRole   Role?
+  action      String // e.g. "PAYMENT_CAPTURED", "KYC_VERIFIED", "REFUND_APPROVED"
+  entityType  String // e.g. "Payment", "LawyerProfile"
+  entityId    String
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+  @@index([action])
+}
+
+// ============================================================================
+// PHASE 4 — Communication
+// ============================================================================
+
+// One row per (user, channel) delivery attempt for a given event — a single
+// logical event (e.g. "appointment accepted") fans out into one
+// Notification row per channel it's sent on, so email and WhatsApp delivery
+// can succeed/fail independently and each is individually retryable.
+model Notification {
+  id      String              @id @default(uuid())
+  userId  String
+  user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel NotificationChannel
+  type    NotificationType
+  status  NotificationStatus  @default(PENDING)
+
+  // Rendered subject/body/template-params actually sent — kept for
+  // audit/debugging, not re-derived from `type` after the fact.
+  payload      Json?
+  title        String?
+  message      String?
+  link         String?
+  isRead       Boolean @default(false)
+  readAt       DateTime?
+  errorMessage String?
+
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, status])
+  @@index([userId, isRead, createdAt])
+  @@index([type])
+}
+
+
+
+model NotificationPreference {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inAppEnabled          Boolean  @default(true)
+  emailEnabled          Boolean  @default(true)
+  appointmentReminders  Boolean  @default(true)
+  paymentUpdates        Boolean  @default(true)
+  chatNotifications     Boolean  @default(true)
+  promotional           Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model AdminNote {
+  id            String   @id @default(uuid())
+  authorUserId  String
+  authorUser    User     @relation("AdminNoteAuthor", fields: [authorUserId], references: [id])
+  subjectUserId String?
+  subjectUser   User?    @relation("AdminNoteSubject", fields: [subjectUserId], references: [id], onDelete: Cascade)
+  entityType    String
+  entityId      String
+  note          String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([entityType, entityId, createdAt])
+  @@index([subjectUserId])
+}
+
+model ActivityEvent {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  entityType  String
+  entityId    String
+  action      String
+  title       String
+  description String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([userId, createdAt])
+}
+
+// Chat is scoped to a single appointment (the consultation relationship),
+// not a standalone DM system — senderId/receiverId are always the
+// appointment's user and lawyer, in one direction or the other.
+model ChatMessage {
+  id String @id @default(uuid())
+
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  senderId   String
+  sender     User   @relation("ChatMessagesSent", fields: [senderId], references: [id])
+  receiverId String
+  receiver   User   @relation("ChatMessagesReceived", fields: [receiverId], references: [id])
+
+  content String?
+  // Private S3 object key for a shared file, if any — never a public URL,
+  // same convention as Document/KYC (signed URL on read).
+  attachmentKey      String?
+  attachmentFileName String?
+  attachmentMimeType String?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([appointmentId, createdAt])
+  @@index([receiverId, readAt])
+}
+
+// ============================================================================
+// PHASE 5 — Admin & CMS
+// ============================================================================
+
+// One review per appointment, left by the client about the lawyer. Only
+// buyable once — enforced by the @unique on appointmentId — and only after
+// COMPLETED (checked in review.service.js, not enforceable in schema).
+model Review {
+  id String @id @default(uuid())
+
+  appointmentId String @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lawyerId      String
+  lawyerProfile LawyerProfile @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+
+  rating  Int // 1-5, validated at the application layer
+  comment String?
+
+  // Admin moderation — a review can be unpublished without deleting it
+  // (keeps the rating in aggregate stats but hides the text).
+  isPublished Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lawyerId, isPublished])
+}
+
+model SupportTicket {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("TicketRequester", fields: [userId], references: [id], onDelete: Cascade)
+
+  subject     String
+  description String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+
+  assignedToUserId String?
+  assignedToUser   User?   @relation("TicketAssignee", fields: [assignedToUserId], references: [id])
+
+  resolutionNotes String?
+  resolvedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  replies SupportTicketReply[]
+
+  @@index([status, priority])
+  @@index([userId])
+  @@index([assignedToUserId])
+}
+
+model SupportTicketReply {
+  id String @id @default(uuid())
+
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+model Blog {
+  id      String     @id @default(uuid())
+  title   String
+  slug    String     @unique
+  excerpt String?
+  content String // markdown
+  coverImageKey String?
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  status      BlogStatus @default(DRAFT)
+  publishedAt DateTime?
+  tags        String[]   @default([])
+
+  seoMetaId String?  @unique
+  seoMeta   SeoMeta? @relation(fields: [seoMetaId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([status, publishedAt])
+}
+
+model Faq {
+  id           String   @id @default(uuid())
+  question     String
+  answer       String
+  category     String?
+  displayOrder Int      @default(0)
+  isPublished  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category, isPublished, displayOrder])
+}
+
+// Curated marketing testimonials for the homepage — distinct from Review
+// (which is tied to a real appointment/lawyer). An admin can enter these
+// manually (e.g. from an offline client quote), so no User/appointment FK.
+model Testimonial {
+  id           String   @id @default(uuid())
+  authorName   String
+  authorRole   String?
+  quote        String
+  avatarKey    String?
+  rating       Int?
+  isPublished  Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isPublished, displayOrder])
+}
+
+// Per-page SEO metadata the frontend fetches by path to fill in dynamic
+// meta tags, canonical URL, and schema.org JSON-LD.
+model SeoMeta {
+  id            String   @id @default(uuid())
+  path          String   @unique // e.g. "/", "/services", "/blog/my-post-slug"
+  title         String
+  description   String
+  ogImageKey    String?
+  canonicalUrl  String?
+  schemaJson    Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  blog Blog?
+}
+
+// Admin-editable override for a notification's content. If no active row
+// matches (type, channel), notification.service.js falls back to the
+// static registry in notificationTemplates.js. {{variable}} tokens in
+// subject/bodyText are substituted from the same `data` object the static
+// templates receive.
+model MessageTemplate {
+  id       String              @id @default(uuid())
+  type     NotificationType
+  channel  NotificationChannel
+  subject  String? // email only
+  bodyText String
+  whatsappTemplateName String? // WhatsApp only — must match an approved Meta template
+  isActive Boolean             @default(true)
+
+  updatedByUserId String?
+  updatedByUser   User?   @relation(fields: [updatedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([type, channel])
+}
+
+// ============================================================================
+// PHASE 7 — Services Catalog, Contact/Lead Management, Media Library, Backup
+// ============================================================================
+
+// Practice-area catalog, admin-managed (previously hardcoded on the
+// frontend as static mock data — this is what that data now maps to).
+model Service {
+  id               String   @id @default(uuid())
+  slug             String   @unique
+  name             String
+  description      String
+  longDescription  String?
+  icon             String? // lucide-react icon name, resolved client-side
+  coverImageKey    String?
+  feeRangeMin      Decimal? @db.Decimal(10, 2)
+  feeRangeMax      Decimal? @db.Decimal(10, 2)
+  covers           String[] @default([]) // "what's covered" bullet list
+  isPublished      Boolean  @default(true)
+  displayOrder     Int      @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isPublished, displayOrder])
+}
+
+// Public contact-form submissions. Deliberately NOT tied to a User — most
+// leads come from people who don't have an account yet.
+model Lead {
+  id     String     @id @default(uuid())
+  name   String
+  email  String
+  phone  String?
+  topic  String?
+  message String
+  status LeadStatus @default(NEW)
+  notes  String? // internal admin notes, never shown back to the submitter
+
+  assignedToUserId String?
+  assignedToUser   User?   @relation(fields: [assignedToUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Centralized registry of every file uploaded anywhere in the platform —
+// documents, KYC files, blog covers, testimonial avatars, SEO OG images,
+// chat attachments. Existing upload code writes straight to S3 via
+// utils/s3.js without this table; this is the missing "what did we ever
+// upload, and where" index an admin Media Library screen needs. Storing a
+// record here does NOT change where the underlying file lives — it's a
+// parallel index, not a replacement for the per-feature key columns
+// (Document.fileKey, Blog.coverImageKey, etc.).
+model MediaAsset {
+  id               String   @id @default(uuid())
+  key              String   @unique // S3 object key — same convention as everywhere else, never a public URL
+  originalFileName String
+  mimeType         String
+  fileSizeBytes    Int
+
+  // What this file is for and what it's attached to, e.g.
+  // usageContext="blog-cover", usageEntityId=<Blog.id>. usageEntityId is
+  // intentionally untyped (no FK) since it can point at any model.
+  usageContext   String
+  usageEntityId  String?
+
+  uploadedByUserId String?
+  uploadedByUser   User?   @relation(fields: [uploadedByUserId], references: [id])
+
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  @@index([usageContext, usageEntityId])
+  @@index([uploadedByUserId])
+}
+
+// One row per backup attempt. The archive itself is a JSON export of every
+// table (see utils/backup.js) stored in S3 — not a raw pg_dump binary,
+// since that requires shell access to the `pg_dump` binary that may not
+// exist in every deployment target. A real production deployment should
+// layer proper `pg_dump` + point-in-time recovery on top of this; see
+// docs/backup-restore.md.
+model BackupRecord {
+  id     String       @id @default(uuid())
+  status BackupStatus @default(IN_PROGRESS)
+
+  triggeredByUserId String?
+  triggeredByUser   User?   @relation(fields: [triggeredByUserId], references: [id])
+
+  storageKey    String? // S3 key of the backup archive, once complete
+  fileSizeBytes Int?
+  errorMessage  String?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([status])
+}
