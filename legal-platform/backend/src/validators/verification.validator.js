@@ -1,9 +1,25 @@
 const { z } = require("zod");
 
+// const listQueueSchema = z.object({
+//   query: z.object({
+//     status: z.enum(["PENDING", "UNDER_REVIEW"]).optional(),
+//     page: z.coerce.number().int().min(1).default(1),
+//     limit: z.coerce.number().int().min(1).max(100).default(20),
+//   }),
+// });
+
 const listQueueSchema = z.object({
   query: z.object({
-    status: z.enum(["PENDING", "UNDER_REVIEW"]).optional(),
+    status: z.enum([
+      "PENDING",
+      "UNDER_REVIEW",
+      "VERIFIED",
+      "REJECTED",
+      "REUPLOAD_REQUIRED",
+    ]).optional(),
+
     page: z.coerce.number().int().min(1).default(1),
+
     limit: z.coerce.number().int().min(1).max(100).default(20),
   }),
 });

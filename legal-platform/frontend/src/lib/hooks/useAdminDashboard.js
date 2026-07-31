@@ -1,9 +1,25 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+// import {
+//   adminApi, refundApi, leadApi, mediaApi, backupApi,
+//   blogApi, faqApi, testimonialApi, seoApi, serviceApi, supportTicketApi, lawyerApi,
+// } from "@/lib/api";
+
 import {
-  adminApi, refundApi, leadApi, mediaApi, backupApi,
-  blogApi, faqApi, testimonialApi, seoApi, serviceApi, supportTicketApi, lawyerApi,
+  adminApi,
+  refundApi,
+  leadApi,
+  mediaApi,
+  backupApi,
+  blogApi,
+  faqApi,
+  testimonialApi,
+  seoApi,
+  serviceApi,
+  supportTicketApi,
+  lawyerApi,
+  documentApi,
 } from "@/lib/api";
 
 // ---- Overview / Analytics ----
@@ -68,8 +84,33 @@ export function useAdminLawyer(id) {
 }
 
 // ---- Documents oversight ----
+// export function useAdminDocuments(params = {}) {
+//   return useQuery({ queryKey: ["admin", "documents", params], queryFn: async () => (await adminApi.listDocuments(params)).data });
+// }
+
+
+// ---- Documents oversight ----
 export function useAdminDocuments(params = {}) {
-  return useQuery({ queryKey: ["admin", "documents", params], queryFn: async () => (await adminApi.listDocuments(params)).data });
+  return useQuery({
+    queryKey: ["admin", "documents", params],
+    queryFn: async () =>
+      (await adminApi.listDocuments(params)).data,
+  });
+}
+
+export function useDeleteAdminDocument() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (documentId) =>
+      documentApi.remove(documentId),
+
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "documents"],
+      });
+    },
+  });
 }
 
 // ---- Appointments oversight ----
@@ -349,3 +390,4 @@ export function useActivityEvent(id) {
     enabled: !!id,
   });
 }
+

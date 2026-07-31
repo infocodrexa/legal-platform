@@ -131,13 +131,50 @@ async function upsertProfile({ userId, barCouncilId, bio, specializations, exper
   return omitDocKeys(profile);
 }
 
+// async function getProfileWithSignedDocs(profile) {
+//   const [licenseUrl, panUrl] = await Promise.all([
+//     profile.licenseDocKey ? getSignedDownloadUrl(profile.licenseDocKey) : null,
+//     profile.panDocKey ? getSignedDownloadUrl(profile.panDocKey) : null,
+//   ]);
+//   return { ...omitDocKeys(profile), licenseDocUrl: licenseUrl, panDocUrl: panUrl };
+// }
+
+
 async function getProfileWithSignedDocs(profile) {
+  const getSafeSignedUrl = async (documentKey, documentType) => {
+    if (!documentKey) return null;
+
+    try {
+      return await getSignedDownloadUrl(documentKey);
+    } catch (error) {
+      console.warn(
+        `[lawyer-profile] ${documentType} document unavailable`,
+        {
+          lawyerProfileId: profile.id,
+          documentKey,
+          error: error.message,
+        }
+      );
+
+      return null;
+    }
+  };
+
   const [licenseUrl, panUrl] = await Promise.all([
-    profile.licenseDocKey ? getSignedDownloadUrl(profile.licenseDocKey) : null,
-    profile.panDocKey ? getSignedDownloadUrl(profile.panDocKey) : null,
+    getSafeSignedUrl(profile.licenseDocKey, "license"),
+    getSafeSignedUrl(profile.panDocKey, "pan"),
   ]);
-  return { ...omitDocKeys(profile), licenseDocUrl: licenseUrl, panDocUrl: panUrl };
+
+  return {
+    ...omitDocKeys(profile),
+    licenseDocUrl: licenseUrl,
+    panDocUrl: panUrl,
+    licenseDocAvailable: Boolean(licenseUrl),
+    panDocAvailable: Boolean(panUrl),
+  };
 }
+
+
 
 // Admin-side KYC decision. Payout eligibility (Phase 3, Razorpay linked
 // accounts) is gated on kycStatus === 'VERIFIED' per the compliance spec.

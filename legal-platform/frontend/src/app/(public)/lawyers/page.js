@@ -17,8 +17,12 @@ export const revalidate = 120;
 // Genuinely functional filter — a real GET param, not static UI. The
 // backend's GET /lawyers?specialization= only supports one at a time, so
 // this is single-select rather than multi-select checkboxes.
+// export default async function LawyersPage({ searchParams }) {
+//   const specialization = searchParams?.specialization || "";
+
 export default async function LawyersPage({ searchParams }) {
-  const specialization = searchParams?.specialization || "";
+  const params = await searchParams;
+  const specialization = params?.specialization || "";
 
   const [lawyersResult, servicesResult] = await Promise.all([
     lawyerApi.listPublicDirectory({ page: 1, limit: 50, ...(specialization && { specialization }) }).catch(() => null),

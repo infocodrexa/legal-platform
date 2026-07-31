@@ -153,7 +153,7 @@ function getDocumentName(document) {
 
 const statusFilters = [
   {
-    label: "Queue",
+    label: "All",
     value: "",
   },
   {
@@ -163,6 +163,18 @@ const statusFilters = [
   {
     label: "Under review",
     value: "UNDER_REVIEW",
+  },
+  {
+    label: "Verified",
+    value: "VERIFIED",
+  },
+  {
+    label: "Rejected",
+    value: "REJECTED",
+  },
+  {
+    label: "Re-upload required",
+    value: "REUPLOAD_REQUIRED",
   },
 ];
 
@@ -263,10 +275,18 @@ export default function LawyerDocumentsPage() {
         />
       ) : documents.length === 0 ? (
         <EmptyState
-          icon="FileText"
-          title="Queue is empty"
-          description="Nothing is waiting for review right now."
-        />
+  icon="FileText"
+  title={
+    statusFilter
+      ? `No ${statusFilter.toLowerCase().replaceAll("_", " ")} documents`
+      : "No documents found"
+  }
+  description={
+    statusFilter
+      ? "No documents are available with this status."
+      : "No client documents have been submitted yet."
+  }
+/>
       ) : filteredDocuments.length === 0 ? (
         <div className="rounded-card border border-paper-line bg-paper-raised px-5 py-14 text-center">
           <FileSearch className="mx-auto h-9 w-9 text-ink-muted" />

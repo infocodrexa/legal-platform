@@ -13,6 +13,44 @@ const MUTABLE_STATUSES = new Set([
   "REUPLOAD_REQUIRED",
 ]);
 
+
+const ADMIN_ROLES = new Set([
+  "ADMIN",
+  "SUPER_ADMIN",
+]);
+
+async function getAccessibleDocument({
+  documentId,
+  userId,
+  userRole,
+}) {
+  if (!documentId) {
+    throw new ApiError(400, "Document ID is required");
+  }
+
+  const document = await prisma.document.findUnique({
+    where: {
+      id: documentId,
+    },
+  });
+
+  if (!document || document.deletedAt) {
+    throw new ApiError(404, "Document not found");
+  }
+
+  const isAdmin = ADMIN_ROLES.has(userRole);
+
+  if (!isAdmin && document.userId !== userId) {
+    throw new ApiError(
+      403,
+      "You do not have access to this document"
+    );
+  }
+
+  return document;
+}
+
+
 function omitFileKey(document) {
   if (!document) return document;
 
@@ -237,14 +275,40 @@ async function listUserDocuments({
  * GET /documents/:documentId
  * Return metadata with temporary preview URL.
  */
+// async function getDocumentWithSignedUrl({
+//   documentId,
+//   userId,
+// }) {
+//   const document = await getOwnedDocument(
+//     documentId,
+//     userId
+//   );
+
+//   const previewUrl = await getSignedDownloadUrl(
+//     document.fileKey,
+//     {
+//       expiresIn: 300,
+//       download: false,
+//     }
+//   );
+
+//   return {
+//     ...omitFileKey(document),
+//     previewUrl,
+//     previewUrlExpiresIn: 300,
+//   };
+// }
+
 async function getDocumentWithSignedUrl({
   documentId,
   userId,
+  userRole,
 }) {
-  const document = await getOwnedDocument(
+  const document = await getAccessibleDocument({
     documentId,
-    userId
-  );
+    userId,
+    userRole,
+  });
 
   const previewUrl = await getSignedDownloadUrl(
     document.fileKey,
@@ -260,6 +324,7 @@ async function getDocumentWithSignedUrl({
     previewUrlExpiresIn: 300,
   };
 }
+
 
 /**
  * GET /documents/:documentId/download
@@ -552,26 +617,77 @@ async function renameDocument({
  * DELETE /documents/:documentId
  * Soft-delete DB row and remove active Supabase object.
  */
+// async function deleteDocument({
+//   documentId,
+//   userId,
+// }) {
+//   const document = await getOwnedDocument(
+//     documentId,
+//     userId
+//   );
+
+//   if (!MUTABLE_STATUSES.has(document.status)) {
+//     throw new ApiError(
+//       409,
+//       `Cannot delete a document with status ${document.status}`
+//     );
+//   }
+
+//   /*
+//    * Soft-delete the database record first so it becomes
+//    * inaccessible even if storage cleanup temporarily fails.
+//    */
+//   await prisma.document.update({
+//     where: {
+//       id: documentId,
+//     },
+//     data: {
+//       deletedAt: new Date(),
+//     },
+//   });
+
+//   try {
+//     await deletePrivateObject(document.fileKey);
+//   } catch (error) {
+//     console.error(
+//       "Supabase document cleanup failed:",
+//       {
+//         documentId,
+//         fileKey: document.fileKey,
+//         message: error.message,
+//       }
+//     );
+//   }
+
+//   return {
+//     documentId,
+//     deleted: true,
+//   };
+// }
+
 async function deleteDocument({
   documentId,
   userId,
+  userRole,
 }) {
-  const document = await getOwnedDocument(
+  const document = await getAccessibleDocument({
     documentId,
-    userId
-  );
+    userId,
+    userRole,
+  });
 
-  if (!MUTABLE_STATUSES.has(document.status)) {
+  const isAdmin = ADMIN_ROLES.has(userRole);
+
+  if (
+    !isAdmin &&
+    !MUTABLE_STATUSES.has(document.status)
+  ) {
     throw new ApiError(
       409,
       `Cannot delete a document with status ${document.status}`
     );
   }
 
-  /*
-   * Soft-delete the database record first so it becomes
-   * inaccessible even if storage cleanup temporarily fails.
-   */
   await prisma.document.update({
     where: {
       id: documentId,
@@ -599,6 +715,7 @@ async function deleteDocument({
     deleted: true,
   };
 }
+
 
 module.exports = {
   uploadDocument,

@@ -5,19 +5,62 @@ const { recordStatusChange, omitFileKey } = require("./document.service");
 const lawyerService = require("./lawyer.service");
 const notificationService = require("./notification.service");
 
+// async function listReviewQueue({ status, page, limit }) {
+//   const where = { deletedAt: null, status: status ? status : { in: ["PENDING", "UNDER_REVIEW"] } };
+//   const [items, total] = await Promise.all([
+//     prisma.document.findMany({
+//       where,
+//       orderBy: { createdAt: "asc" }, // oldest first — FIFO review queue
+//       skip: (page - 1) * limit,
+//       take: limit,
+//       include: { user: { select: { id: true, name: true, email: true } } },
+//     }),
+//     prisma.document.count({ where }),
+//   ]);
+//   return { items: items.map(omitFileKey), total, page, limit };
+// }
+
+
 async function listReviewQueue({ status, page, limit }) {
-  const where = { deletedAt: null, status: status ? status : { in: ["PENDING", "UNDER_REVIEW"] } };
+  const where = {
+    deletedAt: null,
+  };
+
+  // Status nahi bheja gaya to sabhi non-deleted documents return honge.
+  if (status) {
+    where.status = status;
+  }
+
   const [items, total] = await Promise.all([
     prisma.document.findMany({
       where,
-      orderBy: { createdAt: "asc" }, // oldest first — FIFO review queue
+      orderBy: {
+        createdAt: "desc",
+      },
       skip: (page - 1) * limit,
       take: limit,
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
     }),
-    prisma.document.count({ where }),
+
+    prisma.document.count({
+      where,
+    }),
   ]);
-  return { items: items.map(omitFileKey), total, page, limit };
+
+  return {
+    items: items.map(omitFileKey),
+    total,
+    page,
+    limit,
+  };
 }
 
 async function getDocumentForReview(documentId) {

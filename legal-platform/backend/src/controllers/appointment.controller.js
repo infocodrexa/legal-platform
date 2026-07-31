@@ -31,6 +31,20 @@ const getOne = asyncHandler(async (req, res) => {
   sendSuccess(res, { data: appointment });
 });
 
+const getAdminOne = asyncHandler(async (req, res) => {
+  const appointment =
+    await appointmentService.getAdminAppointmentDetail({
+      appointmentId: req.params.appointmentId,
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+    });
+
+  sendSuccess(res, {
+    data: appointment,
+  });
+});
+
+
 const respond = asyncHandler(async (req, res) => {
   const appointment = await appointmentService.respondToRequest({
     appointmentId: req.params.appointmentId,
@@ -69,4 +83,4 @@ const reschedule = asyncHandler(async (req, res) => {
   sendSuccess(res, { statusCode: 201, message: "Appointment rescheduled.", data: appointment });
 });
 
-module.exports = { book, listMine, listAsLawyer, getOne, respond, cancel, complete, reschedule };
+module.exports = { book, listMine, listAsLawyer, getOne, getAdminOne, respond, cancel, complete, reschedule };

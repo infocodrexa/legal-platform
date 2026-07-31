@@ -139,6 +139,48 @@ async function getAppointmentDetail({ appointmentId, actorUserId, actorRole }) {
   return appointment;
 }
 
+async function getAdminAppointmentDetail({
+  appointmentId,
+  actorUserId,
+  actorRole,
+}) {
+  const appointment = await prisma.appointment.findUnique({
+    where: {
+      id: appointmentId,
+    },
+
+    include: SAFE_PARTICIPANTS_INCLUDE,
+  });
+
+  if (!appointment) {
+    throw new ApiError(404, "Appointment not found");
+  }
+
+  const isOwnerUser =
+    appointment.userId === actorUserId;
+
+  const isOwnerLawyer =
+    appointment.lawyerProfile?.user?.id === actorUserId;
+
+  const isPrivileged = [
+    "ADMIN",
+    "SUPER_ADMIN",
+  ].includes(actorRole);
+
+  if (
+    !isOwnerUser &&
+    !isOwnerLawyer &&
+    !isPrivileged
+  ) {
+    throw new ApiError(
+      403,
+      "You do not have access to this appointment"
+    );
+  }
+
+  return appointment;
+}
+
 // Lawyer accepts or rejects a REQUESTED appointment. Rejecting frees the slot.
 // On ACCEPTED, a Google Meet link is created via the Calendar API. That call
 // happens *after* the DB transaction commits (it's an external network call
@@ -159,13 +201,18 @@ async function respondToRequest({ appointmentId, lawyerUserId, decision, reason 
     }
 
     return tx.appointment.update({
-      where: { id: appointmentId },
-      data: {
-        status: decision,
-        ...(decision === "REJECTED" && { cancelReason: reason || null, cancelledByRole: "LAWYER" }),
-      },
-      include: SAFE_PARTICIPANTS_INCLUDE,
-    });
+  where: { id: appointmentId },
+  data: {
+    status: decision,
+
+    ...(decision === "REJECTED" && {
+      slotId: null,
+      cancelReason: reason || null,
+      cancelledByRole: "LAWYER",
+    }),
+  },
+  include: SAFE_PARTICIPANTS_INCLUDE,
+});
   });
 
   const notifyClient = () =>
@@ -243,14 +290,19 @@ async function cancelAppointment({ appointmentId, actorUserId, actorRole, reason
     }
 
     return tx.appointment.update({
-      where: { id: appointmentId },
-      data: {
-        status: "CANCELLED",
-        cancelReason: reason || null,
-        cancelledByRole: isPrivileged ? actorRole : isOwnerUser ? "USER" : "LAWYER",
-      },
-      include: SAFE_PARTICIPANTS_INCLUDE,
-    });
+  where: { id: appointmentId },
+  data: {
+    status: "CANCELLED",
+    slotId: null,
+    cancelReason: reason || null,
+    cancelledByRole: isPrivileged
+      ? actorRole
+      : isOwnerUser
+        ? "USER"
+        : "LAWYER",
+  },
+  include: SAFE_PARTICIPANTS_INCLUDE,
+});
   });
 
   if (cancelled.googleEventId) {
@@ -324,10 +376,13 @@ async function rescheduleAppointment({ appointmentId, actorUserId, actorRole, ne
       await tx.availabilitySlot.update({ where: { id: appointment.slotId }, data: { isBooked: false } });
     }
 
-    await tx.appointment.update({
-      where: { id: appointmentId },
-      data: { status: "RESCHEDULED" },
-    });
+   await tx.appointment.update({
+  where: { id: appointmentId },
+  data: {
+    status: "RESCHEDULED",
+    slotId: null,
+  },
+});
 
     const created = await tx.appointment.create({
       data: {
@@ -368,6 +423,7 @@ module.exports = {
   listUserAppointments,
   listLawyerAppointments,
   getAppointmentDetail,
+  getAdminAppointmentDetail,
   respondToRequest,
   cancelAppointment,
   completeAppointment,

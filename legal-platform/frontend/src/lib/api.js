@@ -143,6 +143,9 @@ export const documentApi = {
         ...params,
       },
     }),
+
+  remove: (id) =>
+  api.delete(`/documents/${id}`),
 };
 
 export const verificationApi = {
@@ -171,6 +174,7 @@ export const appointmentApi = {
   mine: (params) => api.get("/appointments/mine", { params }),
   lawyerMine: (params) => api.get("/appointments/lawyer/mine", { params }),
   get: (id) => api.get(`/appointments/${id}`),
+  getAdmin: (id) => api.get(`/appointments/admin/${id}`),
   respond: (id, data) => api.post(`/appointments/${id}/respond`, data),
   cancel: (id, data) => api.post(`/appointments/${id}/cancel`, data),
   complete: (id) => api.post(`/appointments/${id}/complete`),

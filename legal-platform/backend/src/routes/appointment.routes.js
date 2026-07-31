@@ -24,6 +24,16 @@ router.get(
   validate(listAppointmentsSchema),
   controller.listAsLawyer
 );
+
+// Admin detailed appointment route
+// Isko /:appointmentId se pehle rakhna zaroori hai
+router.get(
+  "/admin/:appointmentId",
+  authorize("ADMIN", "SUPER_ADMIN"),
+  validate(appointmentIdParamSchema),
+  controller.getAdminOne
+);
+
 router.get("/:appointmentId", validate(appointmentIdParamSchema), controller.getOne);
 router.post(
   "/:appointmentId/respond",
