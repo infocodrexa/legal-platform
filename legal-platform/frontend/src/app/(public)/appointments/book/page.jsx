@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   useRouter,
   useSearchParams,
@@ -115,7 +115,8 @@ function getAppointmentId(response) {
   );
 }
 
-export default function BookAppointmentPage() {
+// export default function BookAppointmentPage() {
+function BookAppointmentContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -642,5 +643,32 @@ export default function BookAppointmentPage() {
         </div>
       </div>
     </main>
+
+    
+  );
+}
+
+
+function BookingPageLoading() {
+  return (
+    <main className="min-h-screen bg-cream px-4 py-16">
+      <div className="mx-auto flex min-h-[420px] max-w-3xl items-center justify-center rounded-xl border border-ink/10 bg-white">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-seal" />
+
+          <p className="mt-4 text-sm text-ink-muted">
+            Loading appointment details...
+          </p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export default function BookAppointmentPage() {
+  return (
+    <Suspense fallback={<BookingPageLoading />}>
+      <BookAppointmentContent />
+    </Suspense>
   );
 }
